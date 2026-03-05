@@ -1,0 +1,9 @@
+out
+dist
+node_modules
+.vscode-test/
+*.vsix
+src/openai-API-key.ts
+src/embeddings-location.ts
+data
+src/generate-embeddings.ts

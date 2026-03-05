@@ -1,0 +1,15 @@
+The program has been modified to identify parameters, return types, and
+function bodies using regular expressions. This works for select cases.
+
+Some problems have been identified in the current implementation:
+
+- parameter identification breaks when parameters are defined over multiple
+  lines or when multiple opening parentheses are used
+- relies on syntax tokens (eg. (), {}, ... )
+- non-null assertion operator (!) is used, no handling for cases where values
+  are null
+- no consideration for differing definition types (eg. function, interface,
+  type, ...)
+
+comment identification not yet working, attempted regex implementation
+without success.

@@ -1,0 +1,9 @@
+Functionality to display an interactive GoJS diagram has been added.
+
+To access the GoJS library, it has to be linked in the head element.
+To run a script in vscode's webview, the enableScripts option needs to be
+enabled as an argument to createWebviewPanel.
+
+A diagram is outlined in a div element and its id is passed to the script.
+Within the script, a model is defined for the diagram. The model stores data
+about the diagram's nodes.

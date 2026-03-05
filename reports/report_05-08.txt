@@ -1,0 +1,37 @@
+The vscode module defines a series of classes and types that may be useful in
+accessing information about a symbol's definition.
+
+Here they are:
+
+Definition
+  type Definition = Location | Location[]
+Location
+  class Location { uri: Uri, range: Range }
+  uri: universal resource identifier
+  range: coordinate range of location
+Uri
+  class Uri
+  file(path: string): Uri
+Range
+  class Range { start: Position, end: Position }
+  start: start position
+  end: end position
+Position
+  class Position { line: number, character: number }
+  line: zero-based line value
+  character: zero-based character value
+
+
+The built-in executeDefinitionProvider command can be used to access data
+about the location of a symbol's defintion. It takes as parameters the uri and
+position data of the document in question.
+
+It returns the following properties:
+
+targetUri.path -> file location of definition
+targetRange.{c, e} -> line of definition
+targetSelectionRange.{c, e} -> char coordinate range of symbol in definition
+originSelectionRange.{c, e} -> char coordinate range of symbol in caller
+
+This data will need to be interpreted in order to gather information from
+symbol definitions.

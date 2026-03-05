@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Page Title</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+
+    <!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script> -->
+
+	<link rel="stylesheet" href="styles.css" />
+
+    <!-- <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/vs2015.min.css"> -->
+    <!-- <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/tomorrow-night-blue.min.css"> -->
+    <link rel="stylesheet" href="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+
+</head>
+<body>
+
+    <div class="menu-bar">
+        <button class="plain-input" onclick="toggleAll('v', 'flex')">expand all</button>
+        <button class="plain-input" onclick="toggleAll('>', 'none')">collapse all</button>
+        <button class="plain-input" onclick="loadSnippets()">import</button>
+        <button class="plain-input" onclick="saveSnippets()">export</button>
+        <button class="plain-input" onclick="loadTeamSnippets()">import team snippets</button>
+        <input type="text" id="snippetFilterInput" placeholder="Filter snippets..." class="plain-input" style="flex: 1; margin-left: 10px;">
+        <button class="plain-input" onclick="clearSnippetFilter()">Clear Filter</button>
+    </div>
+    <div><br /></div>
+    <div id="snippets"></div>
+
+    <dialog id="dialog-box" style="height: fit-content; width: fit-content; margin: 0; padding: 0; border: 0; border-radius: 15px; position: fixed; top: 2.5vh; left: 25vw;">
+        <form class="dialog-form" method="dialog" style="display: flex; flex-direction: column; height: 95vh; width: 50vw; min-height: 182px; min-width: 320px; max-height: 95vh; max-width: 100%; justify-content: space-between; resize: auto; overflow: hidden;">
+            <div id="dialog-titlebar" style="background-color: lightgray; display: flex; justify-content: space-between; padding: 0;">
+                <h3 style="margin: 0; padding: 1em;">Snippet Context</h3>
+                <button id="dialog-title-close" class="dialog-title-close">X</button>
+            </div>
+            <div style="display: flex; flex-direction: column; height: 100%; justify-content: space-evenly;">
+                <div style="display: flex; flex-direction: column; height: 70%;">
+                    <div style="color: white;">Enter a description of the file contents:</div>
+                    <textarea id="dialog-text-input" style="height: 100%; width: -webkit-fill-available; resize: none; scrollbar-gutter: stable; border: 1px solid black;"></textarea>
+                </div>
+                <div>
+                    <div style="color: white;">Select a file for additional context:</div>
+                    <input id="dialog-file-input" type="file">
+                </div>
+            </div>
+            <div style="background-color: lightgray; padding: 1em;">
+                <button id="dialog-close">close</button>
+                <button disabled id="dialog-submit">submit</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Custom confirmation dialog for snippet removal -->
+    <div id="removeConfirmDialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--vscode-editor-background); border: 1px solid var(--vscode-editorGroup-border); border-radius: 8px; padding: 20px; min-width: 300px;">
+            <h3 id="removeConfirmTitle" style="margin: 0 0 15px 0; color: var(--vscode-foreground);">Remove Snippet</h3>
+            <p id="removeConfirmMessage" style="margin: 0 0 20px 0; color: var(--vscode-foreground);">Are you sure you want to remove this snippet?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="removeConfirmCancel" class="plain-input" style="padding: 8px 16px;">Cancel</button>
+                <button id="removeConfirmOk" class="plain-input" style="padding: 8px 16px; background: var(--vscode-errorForeground); color: white;">Remove</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+
+        window.addEventListener("message", event => {
+            if (event.data.command === "clear") {
+                pinnedSnippets.innerHTML = "";
+                clearSnippetFilter(); // Reset filter when snippets are cleared
+            } else if (event.data.command === "addSnippet") {
+                addSnippet(event.data.snippetLabel, "", event.data.fileName, event.data.lineNumbers, event.data.snippet, event.data.gitCommitInfo);
+                
+                // Restore message history if available
+                if (event.data.messages && event.data.messages.length > 0) {
+                    const chatDisplay = pinnedSnippets.lastElementChild.querySelector(".chat-display-box");
+                    if (chatDisplay) {
+                        for (const message of event.data.messages) {
+                            postChatMessage(chatDisplay, message.content, message.role);
+                        }
+                    }
+                }
+
+                // Apply current filter to new snippet
+                filterSnippets();
+            } else if (event.data.command === "autoExport") {
+                // Auto-export snippets to the specified file path
+                autoSaveSnippets(event.data.filePath);
+            } else if (event.data.command === "autoImport") {
+                // Auto-import snippets from the provided JSON data
+                autoLoadSnippets(event.data.data);
+            }
+        });
+
+        const pinnedSnippets = document.getElementById("snippets");
+
+        const dialog = document.getElementById("dialog-box");
+        const dialogTitleBar = document.getElementById("dialog-titlebar");
+        const dialogTextInput = document.getElementById("dialog-text-input");
+        const dialogFileSelector = document.getElementById("dialog-file-input");
+        const dialogTitleClose = document.getElementById("dialog-title-close");
+        const dialogClose = document.getElementById("dialog-close");
+        const dialogSubmit = document.getElementById("dialog-submit");
+        let dialogFileContent;
+        dialogFileSelector.onchange = () => dialogFileSelect();
+        dialogTitleClose.addEventListener("click", () => closeDialogBox());
+        dialogClose.addEventListener("click", () => closeDialogBox());
+        dialogSubmit.addEventListener("click", () => closeDialogBox(true));
+        dialogTitleBar.addEventListener("mousedown", () => moveDialogBox(event));
+
+        // Snippet filtering functionality
+        const snippetFilterInput = document.getElementById("snippetFilterInput");
+        snippetFilterInput.addEventListener("input", filterSnippets);
+
+        // Keyboard shortcuts for filter
+        document.addEventListener("keydown", (event) => {
+            // Ctrl+F or Cmd+F to focus filter (but not when typing in other inputs)
+            if ((event.ctrlKey || event.metaKey) && event.key === 'f' && 
+                !event.target.matches('input, textarea')) {
+                event.preventDefault();
+                snippetFilterInput.focus();
+                snippetFilterInput.select();
+            }
+            
+            // Escape to clear filter when filter is focused
+            if (event.key === 'Escape' && event.target === snippetFilterInput) {
+                clearSnippetFilter();
+                snippetFilterInput.blur();
+            }
+        });
+
+        function filterSnippets() {
+            const filterText = snippetFilterInput.value.toLowerCase();
+            const snippets = Array.from(pinnedSnippets.children);
+
+            snippets.forEach(snippet => {
+                if (!filterText) {
+                    // No filter, show all snippets
+                    snippet.style.display = 'block';
+                    return;
+                }
+
+                // Get searchable text from snippet
+                const label = snippet.querySelector('.snippet-label')?.value || '';
+                const description = snippet.querySelector('.snippet-description')?.value || '';
+                const fileName = snippet.querySelector('.snippet-filename')?.textContent || '';
+                const code = snippet.querySelector('.snippet-code')?.textContent || '';
+
+                // Check if any field matches the filter
+                const matches = label.toLowerCase().includes(filterText) ||
+                               description.toLowerCase().includes(filterText) ||
+                               fileName.toLowerCase().includes(filterText) ||
+                               code.toLowerCase().includes(filterText);
+
+                snippet.style.display = matches ? 'block' : 'none';
+            });
+
+            // Update filter info
+            updateFilterInfo(filterText);
+        }
+
+        function clearSnippetFilter() {
+            snippetFilterInput.value = '';
+            filterSnippets();
+        }
+
+        function updateFilterInfo(filterText) {
+            const snippets = Array.from(pinnedSnippets.children);
+            const visibleSnippets = snippets.filter(snippet => snippet.style.display !== 'none');
+            
+            // Remove existing filter info if it exists
+            const existingInfo = document.getElementById('filter-info');
+            if (existingInfo) {
+                existingInfo.remove();
+            }
+
+            // Add filter info if there's a filter applied
+            if (filterText) {
+                const filterInfo = document.createElement('div');
+                filterInfo.id = 'filter-info';
+                filterInfo.style.cssText = `
+                    padding: 10px;
+                    background: var(--vscode-editorWidget-background);
+                    border: 1px solid var(--vscode-editorWidget-border);
+                    margin: 10px;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    color: var(--vscode-foreground);
+                `;
+                
+                if (visibleSnippets.length === 0) {
+                    filterInfo.innerHTML = `<span style="color: var(--vscode-errorForeground);">No snippets match "${filterText}"</span>`;
+                } else {
+                    filterInfo.innerHTML = `Showing ${visibleSnippets.length} for "${filterText}"`;
+                }
+                
+                pinnedSnippets.insertBefore(filterInfo, pinnedSnippets.firstChild);
+            }
+        }
+
+        function addSnippet(labelText, descriptionText, fileNameText, lineNumberText, codeText, gitCommitInfo) {
+            // snippet header info
+
+            const labelButton = document.createElement("button");
+            Object.assign(labelButton, { className: "plain-input", textContent: "↻", onclick: () => generateSummary(labelInput, "", codeText, "label", container)});
+
+            const labelInput = document.createElement("input");
+            Object.assign(labelInput, { className: "snippet-label", value: labelText });
+            Object.assign(labelInput.style, { 
+                width: "300px",          
+                maxWidth: "70%",        
+                minWidth: "180px",       
+                resize: "horizontal",    
+                padding: "4px 8px",     
+                fontSize: "0.9em"
+            });
+            labelInput.addEventListener("input", autoResize);
+            labelInput.addEventListener("change", () => snippetLabelChange(labelInput, container));
+
+            const label = document.createElement("div");
+            Object.assign(label.style, { display: "flex" });
+            [labelButton, labelInput].forEach(i => label.appendChild(i));
+
+            const fileName = document.createElement("div");
+            Object.assign(fileName, { className: "snippet-filename", textContent: fileNameText });
+            Object.assign(fileName.style, { fontSize: "0.9em", color: "#9C27B0"})
+
+            // Git commit information display
+            const gitInfo = document.createElement("div");
+            Object.assign(gitInfo, { className: "snippet-git-info" });
+            Object.assign(gitInfo.style, { fontSize: "0.8em", color: "#666", marginTop: "4px" });
+            
+            if (gitCommitInfo) {
+                const commitHash = document.createElement("span");
+                Object.assign(commitHash, {
+                    className: "git-commit-hash",
+                    textContent: `Commit: ${gitCommitInfo.hash}`
+                });
+                Object.assign(commitHash.style, {
+                    fontFamily: "monospace",
+                    marginRight: "12px",
+                    color: "#FFD700"
+                });
+
+                const commitAuthor = document.createElement("span");
+                Object.assign(commitAuthor, {
+                    className: "git-commit-author",
+                    textContent: `Author: ${gitCommitInfo.author}`
+                });
+                Object.assign(commitAuthor.style, {
+                    marginRight: "12px",
+                    color: "#4CAF50" // Greenish, calm and readable
+                });
+
+                const commitDate = document.createElement("span");
+                const formattedDate = new Date(gitCommitInfo.date).toLocaleDateString();
+                Object.assign(commitDate, {
+                    className: "git-commit-date",
+                    textContent: `Date: ${formattedDate}`
+                });
+                Object.assign(commitDate.style, {
+                    marginRight: "12px",
+                    color: "#2196F3" 
+                });
+
+                const commitSubject = document.createElement("div");
+                Object.assign(commitSubject, {
+                    className: "git-commit-subject",
+                    textContent: `"${gitCommitInfo.subject}"`
+                });
+                Object.assign(commitSubject.style, {
+                    fontStyle: "italic",
+                    marginTop: "1x",
+                    color: "#FFD700"
+                });
+
+                [commitHash, commitAuthor, commitDate].forEach(i => gitInfo.appendChild(i));
+                gitInfo.appendChild(commitSubject);
+            } else {
+                gitInfo.textContent = "Git information not available";
+                gitInfo.style.color = "#999"; // Gray fallback text
+            }
+
+            const snippetHeaderInfo = document.createElement("div");
+            Object.assign(snippetHeaderInfo.style, { display: "flex", flexDirection: "column", width: "100%" });
+            [label, fileName, gitInfo].forEach(i => snippetHeaderInfo.appendChild(i));
+
+
+            // snippet description
+
+            const descriptionTextArea = document.createElement("textarea");
+            Object.assign(descriptionTextArea, { className: "plain-input snippet-description", placeholder: "description", value: descriptionText, rows: 1, cols: 11, wrap: "off" });
+            Object.assign(descriptionTextArea.style, { 
+                resize: "none", 
+                overflow: "hidden",
+                flex: "1",            
+                minWidth: "150px",
+                padding: "4px 6px",
+                fontSize: "0.9em"
+            });
+                
+            descriptionTextArea.addEventListener('input', autoResize);
+            const descriptionButton = document.createElement("button");
+            Object.assign(descriptionButton, { className: "plain-input", textContent: "↻", onclick: () => generateSummary(descriptionTextArea, "", codeText, "description", container)});
+
+            const description = document.createElement("div");
+            Object.assign(description.style, { display: "flex" });
+            [descriptionButton, descriptionTextArea].forEach(i => description.appendChild(i));
+
+
+            // snippet header
+
+            const snippetHeader = document.createElement("div");
+            Object.assign(snippetHeader.style, { display: "flex", flexDirection: "column", width: "100%" });
+            [snippetHeaderInfo, description].forEach(i => snippetHeader.appendChild(i));
+
+            const toggleButton = document.createElement("button");
+            Object.assign(toggleButton, { className: "plain-input snippet-toggle-button", textContent: "v" });
+            toggleButton.onclick = () => toggleVisibility(toggleButton, snippetContentContainer);
+
+            const removeButton = document.createElement("button");
+            Object.assign(removeButton, { className: "plain-input", textContent: "🗑️" });
+            Object.assign(removeButton.style, { backgroundColor: "var(--vscode-errorForeground)", color: "white", marginLeft: "5px" });
+            removeButton.onclick = () => removeSnippetFromPanel(container, labelText);
+
+            const shareToTeamButton = document.createElement("button");
+            Object.assign(shareToTeamButton, { className: "plain-input", textContent: "👥" });
+            Object.assign(shareToTeamButton.style, { backgroundColor: "var(--vscode-button-background)", color: "var(--vscode-button-foreground)", marginLeft: "5px" });
+            shareToTeamButton.title = "Share to Team (.vscode-snippets-team.json)";
+            shareToTeamButton.onclick = () => shareSnippetToTeam(container);
+
+            const removeFromTeamButton = document.createElement("button");
+            Object.assign(removeFromTeamButton, { className: "plain-input", textContent: "❌" });
+            Object.assign(removeFromTeamButton.style, { backgroundColor: "var(--vscode-errorForeground)", color: "white", marginLeft: "5px" });
+            removeFromTeamButton.title = "Remove from Team (.vscode-snippets-team.json)";
+            removeFromTeamButton.onclick = () => removeSnippetFromTeam(container);
+
+            // Add visual indicator if this is a team snippet (check if it has team origin)
+            const isTeamSnippet = gitCommitInfo && gitCommitInfo.subject === "Shared from VS Code Snippets";
+            if (isTeamSnippet) {
+                // Change button colors to indicate team snippet
+                shareToTeamButton.style.backgroundColor = "var(--vscode-notificationsInfoIcon-foreground)";
+                shareToTeamButton.textContent = "✓";
+                shareToTeamButton.title = "Already in Team (.vscode-snippets-team.json)";
+                shareToTeamButton.disabled = true;
+            }
+
+            const snippetHeaderContainer = document.createElement("div");
+            Object.assign(snippetHeaderContainer.style, { display: "flex" });
+            [toggleButton, removeButton, shareToTeamButton, removeFromTeamButton, snippetHeader].forEach(i => snippetHeaderContainer.appendChild(i));
+
+
+            // snippet content    
+
+            const lineNumbers = document.createElement("code");
+            Object.assign(lineNumbers, { className: "snippet-linenumbers", textContent: lineNumberText });
+            Object.assign(lineNumbers.style, { overflow: "hidden", height: "max-content", minHeight: "-webkit-fill-available" });
+
+            const code = document.createElement("code");
+            Object.assign(code, { className: "snippet-code", textContent: codeText });
+            Object.assign(code.style, { overflowX: "auto", overflowY: "hidden", height: "max-content", minHeight: "-webkit-fill-available", width: "-webkit-fill-available" });
+
+            const copyButton = document.createElement("button");
+            Object.assign(copyButton, { className: "plain-input", textContent: "copy" });
+            Object.assign(copyButton.style, { position: "absolute", top: "0", right: "0" });
+            copyButton.onclick = () => {
+                navigator.clipboard.writeText(codeText);
+            };
+
+            const snippet = document.createElement("pre");
+            Object.assign(snippet.style, { display: "flex", margin: "0", position: "relative", width: "75%", minWidth: "25%", overflowY: "auto", resize: "horizontal" });
+            [lineNumbers, code, copyButton].forEach(i => snippet.appendChild(i));
+
+
+            // chatfield
+
+            const chatFieldDisplay = document.createElement("div");
+            Object.assign(chatFieldDisplay, { className: "chat-display-box" });
+            Object.assign(chatFieldDisplay.style, { display: "flex", flexDirection: "column", width: "100%", height: "100%", overflow: "auto", wordBreak: "break-word" });
+
+            // chatfield toggles
+
+            const chatFieldFetchToggle = document.createElement("input");
+            Object.assign(chatFieldFetchToggle, { type: "checkbox" });
+
+            const chatFieldFetch = document.createElement("label");
+            Object.assign(chatFieldFetch.style, { display: "flex", alignItems: "center" });
+            chatFieldFetch.appendChild(chatFieldFetchToggle);
+            chatFieldFetch.appendChild(Object.assign(document.createElement("div"), { textContent: "fetch document", style: "display: inline; user-select: none; margin-right: 10px;" }));
+
+            const chatFieldConfirmToggle = document.createElement("input");
+            Object.assign(chatFieldConfirmToggle, { type: "checkbox" });
+
+            const chatFieldConfirm = document.createElement("label");
+            Object.assign(chatFieldConfirm.style, { display: "flex", alignItems: "center" });
+            chatFieldConfirm.appendChild(chatFieldConfirmToggle);
+            chatFieldConfirm.appendChild(Object.assign(document.createElement("div"), { textContent: "skip confirmation", style: "display: inline; user-select: none" }));
+
+            const chatFieldToggles = document.createElement("div");
+            Object.assign(chatFieldToggles.style, { display: "flex", alignItems: "flex-start"});
+            [chatFieldFetch, chatFieldConfirm].forEach(i => chatFieldToggles.appendChild(i));
+
+            // chatfield prompt section
+
+            const chatFieldPrompt = document.createElement("textarea");
+            Object.assign(chatFieldPrompt, { placeholder: "prompt", rows: 3, wrap: "true" });
+            Object.assign(chatFieldPrompt.style, { resize: "none", width: "100%", color: "var(--vscode-input-foreground)", backgroundColor: "transparent", border: "none", scrollbarGutter: "stable", scrollbarWidth: "thin" });
+            chatFieldPrompt.addEventListener("keydown", event => {
+                if (event.key === "Enter" && event.shiftKey) {
+                    chatFieldPrompt.value += "";
+                } else if (event.key === "Enter") {
+                    event.preventDefault();
+                    chatFieldSubmit.click();
+                }
+            });
+
+            const chatFieldSubmit = document.createElement("button");
+            Object.assign(chatFieldSubmit, { className: "chatfield-button submit-button", textContent: "submit" });
+            let initialMessageSent = false;
+            chatFieldSubmit.onclick = () => {
+                const msgtype = chatFieldFetchToggle.checked ? "fetch" : "chat";
+                const confSkip = chatFieldConfirmToggle.checked;
+                let snippetContext = "";
+                // pass snippet text for input only if first message or fetch enabled
+                if (!initialMessageSent || msgtype === "fetch") {
+                    initialMessageSent = true;
+                    snippetContext = codeText;
+                }
+                postChatMessage(chatFieldDisplay, chatFieldPrompt.value, "user");
+                generateSummary(chatFieldDisplay, chatFieldPrompt.value, snippetContext, msgtype, container, confSkip);
+                chatFieldPrompt.value = ""; // clear textbox
+            }
+
+            const chatFieldUpload = document.createElement("button");
+            Object.assign(chatFieldUpload, { className: "chatfield-button upload-button", textContent: "+context" });
+            chatFieldUpload.onclick = () => openDialogBox(chatFieldDisplay, container);
+
+            const chatFieldPromptContainer = document.createElement("div");
+            chatFieldPromptContainer.className = "prompt-container";
+            [chatFieldPrompt, chatFieldSubmit, chatFieldUpload].forEach(i => chatFieldPromptContainer.appendChild(i));
+
+            const chatField = document.createElement("div");
+            Object.assign(chatField.style, { display: "flex", flexDirection: "column", width: "min-content", minWidth: "25%", flexGrow: "1" });
+            [chatFieldDisplay, chatFieldToggles, chatFieldPromptContainer].forEach(i => chatField.appendChild(i));
+
+
+            const snippetContentContainer = document.createElement("div");
+            snippetContentContainer.className = "snippet-content-container";
+            Object.assign(snippetContentContainer.style, { display: "flex", height: "500px" });
+            [snippet, chatField].forEach(i => snippetContentContainer.appendChild(i));
+
+
+            // add snippet to page
+            const container = document.createElement("div");
+            container.style.border = "1px solid var(--vscode-editorGroup-border)";
+            [snippetHeaderContainer, snippetContentContainer].forEach(i => container.appendChild(i));
+            pinnedSnippets.insertAdjacentElement("beforeend", container);
+
+            // auto-resize text input fields on creation
+            labelInput.dispatchEvent(new InputEvent("input", autoResize));
+            descriptionTextArea.dispatchEvent(new InputEvent("input", autoResize));
+
+            hljs.highlightElement(lineNumbers);
+            hljs.highlightElement(code);
+        }
+
+        function toggleVisibility(button, snippet) {
+            if (button.textContent === ">") {
+                button.textContent = "v";
+                snippet.style.display = "flex";
+            } else if (button.textContent === "v") {
+                button.textContent = ">";
+                snippet.style.display = "none";
+            }
+        }
+
+        function toggleAll(buttonText, snippetVisibility) {
+            for (snippet of pinnedSnippets.children) {
+                snippet.querySelector('.snippet-toggle-button').textContent = buttonText;
+                snippet.querySelector('.snippet-content-container').style.display = snippetVisibility;
+            }
+        }
+
+        function autoResize() {
+            this.style.height = 'auto';
+            this.style.height = this.scrollHeight + 'px';
+            this.style.width = 'auto';
+            this.style.width = this.scrollWidth + 'px';
+        }
+
+        function getSnippetIndex(container) {
+            return Array.from(pinnedSnippets.children).indexOf(container);
+        }
+
+        function snippetLabelChange(labelInput, container) {
+            vscode.postMessage({
+                command: "snippetLabelChange",
+                newLabel: labelInput.value,
+                index: getSnippetIndex(container)
+            });
+        }
+
+        function generateSummary(textArea, instruction, snippet, type, container, confSkip) {
+            vscode.postMessage({ command: "generateSummary", instruction: instruction, snippet: snippet, type: type, confSkip: confSkip, index: getSnippetIndex(container) });
+            const outputHandler = (event) => {
+                if (event.data.command === "generateSummary") {
+                    if (type === "chat" | type === "fetch") {
+                        postChatMessage(textArea, event.data.output, "assistant");
+                    } else {
+                        textArea.value = event.data.output;
+                        textArea.dispatchEvent(new InputEvent("input", autoResize));
+                        if (type === "label") textArea.dispatchEvent(new Event("change"));
+                    }
+                    window.removeEventListener("message", outputHandler);
+                    textArea.style.cursor = "auto";
+                } else if (event.data.command === "postDocumentFound") {
+                    postChatMessage(textArea, event.data.content, "user", true);
+                }
+            }
+            textArea.style.cursor = "wait";
+            window.addEventListener("message", outputHandler);
+        }
+
+        function postChatMessage(chatFrame, messageContent, type, link) {
+            const messageContainer = document.createElement("div");
+            const message = document.createElement("pre");
+            if (link) {
+                message.innerHTML = `Using document <a href="#" onclick="vscode.postMessage({ command: 'openDocumentation', filename: '${messageContent}' })">${messageContent}</a>`;
+            } else {
+                message.textContent = messageContent;
+            }
+            Object.assign(message.style, { display: "inline-block", textWrap: "wrap", borderRadius: "5px", padding: "5px" });
+            message.style.backgroundColor = { "user": "SlateBlue", "assistant": "SlateGray" }[type];
+            messageContainer.style.alignSelf = { "user": "flex-end", "assistant": "flex-start" }[type];
+            messageContainer.style.maxWidth = "75%";
+            message.classList.add('chat-message');
+            if (type === 'user') {
+                message.classList.add('user-message');
+            } else {
+                message.classList.add('assistant-message');
+            }
+            messageContainer.appendChild(message);
+            chatFrame.appendChild(messageContainer);
+            
+            // Sync messages to decoration manager after adding new message
+            syncSnippetMessagesToDecorationManager(chatFrame);
+        }
+
+        function syncSnippetMessagesToDecorationManager(chatDisplay) {
+            // Find the snippet container that contains this chat display
+            let snippetContainer = chatDisplay;
+            while (snippetContainer && !snippetContainer.classList.contains('snippet-container')) {
+                snippetContainer = snippetContainer.parentElement;
+            }
+            
+            if (snippetContainer) {
+                const labelElement = snippetContainer.querySelector('.snippet-label');
+                if (labelElement) {
+                    const snippetLabel = labelElement.textContent;
+                    
+                    // Extract messages from chat display
+                    const messages = [];
+                    const messageElements = chatDisplay.querySelectorAll('.chat-message');
+                    messageElements.forEach(msgEl => {
+                        const role = msgEl.classList.contains('user-message') ? 'user' : 'assistant';
+                        const content = msgEl.textContent;
+                        messages.push({ role, content });
+                    });
+                    
+                    // Send message sync to extension
+                    vscode.postMessage({ 
+                        command: "syncSnippetMessages", 
+                        snippetLabel: snippetLabel, 
+                        messages: messages 
+                    });
+                }
+            }
+        }
+
+        async function getMessageHistory() {
+            vscode.postMessage({ command: "getMessageHistory" });
+            let messages;
+            await new Promise(resolve => {
+                window.addEventListener("message", event => {
+                    if (event.data.command === "getMessageHistory") {
+                        messages = event.data.messages;
+                        resolve();
+                    }
+                }, { once: true });
+            });
+            return messages;
+        }
+
+        function saveToJSON(snippets, messages) {
+            let json = { snippets: [] }
+            for (const snippet_i of snippets) {
+                const gitInfoElement = snippet_i.querySelector('.snippet-git-info');
+                let gitCommitInfo = null;
+                
+                // Extract git information from the DOM elements
+                if (gitInfoElement && gitInfoElement.textContent !== "Git information not available") {
+                    const hashElement = gitInfoElement.querySelector('.git-commit-hash');
+                    const authorElement = gitInfoElement.querySelector('.git-commit-author');
+                    const dateElement = gitInfoElement.querySelector('.git-commit-date');
+                    const subjectElement = gitInfoElement.querySelector('.git-commit-subject');
+                    
+                    if (hashElement && authorElement && dateElement && subjectElement) {
+                        gitCommitInfo = {
+                            hash: hashElement.textContent.replace('Commit: ', ''),
+                            author: authorElement.textContent.replace('Author: ', ''),
+                            date: dateElement.textContent.replace('Date: ', ''),
+                            subject: subjectElement.textContent.replace(/^"|"$/g, '')
+                        };
+                    }
+                }
+
+                const snippet = {
+                    label: snippet_i.querySelector('.snippet-label').value,
+                    description: snippet_i.querySelector('.snippet-description').value,
+                    fileName: snippet_i.querySelector('.snippet-filename').textContent,
+                    lineNumbers: snippet_i.querySelector('.snippet-linenumbers').textContent,
+                    code: snippet_i.querySelector('.snippet-code').textContent,
+                    gitCommitInfo: gitCommitInfo,
+                    messages: messages[Array.from(snippets).indexOf(snippet_i)]
+                };
+                json.snippets.push(snippet);
+            }
+            return JSON.stringify(json, null, 2);
+        }
+
+        function restoreFromJSON(snippets) {
+            pinnedSnippets.innerHTML = "";
+            const messages = [];
+            for (const i of snippets) {
+                addSnippet(i.label, i.description, i.fileName, i.lineNumbers, i.code, i.gitCommitInfo);
+                if (i.messages) {
+                    messages[snippets.indexOf(i)] = i.messages
+                    for (const message of i.messages) {
+                        postChatMessage(pinnedSnippets.children[snippets.indexOf(i)].querySelector(".chat-display-box"), message.content, message.role);
+                    }
+                }
+                // vscode.postMessage({ command: "loadSnippet", snippetLabel: i.label, fileName: i.fileName, lineNumbers: i.lineNumbers });
+            }
+            vscode.postMessage({ command: "setMessageHistory", messages: messages });
+        }
+
+        async function saveSnippets() {
+            const snippets = pinnedSnippets.children;
+            const messages = await getMessageHistory();
+            const file = new Blob([saveToJSON(snippets, messages)], { type: "text/json" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(file);
+            link.download = "tmp.json";
+            link.click();
+        }
+
+        function loadSnippets() {
+            const callbackFn = function (data) {
+                const json = JSON.parse(data);
+                restoreFromJSON(json.snippets);
+            };
+            selectFile(callbackFn);
+        }
+
+        function loadTeamSnippets() {
+            // Send message to extension to load team snippets
+            vscode.postMessage({ command: "loadTeamSnippets" });
+        }
+
+        // Auto-save function for extension deactivation (no user dialog)
+        async function autoSaveSnippets(filePath) {
+            try {
+                const snippets = pinnedSnippets.children;
+                const messages = await getMessageHistory();
+                const jsonData = saveToJSON(snippets, messages);
+                
+                // Always save, even if empty, to overwrite the file
+                vscode.postMessage({ 
+                    command: "saveToFile", 
+                    filePath: filePath, 
+                    data: jsonData 
+                });
+                
+                //console.log(`Auto-exported ${snippets.length} snippets (always overwrites file)`);
+            } catch (error) {
+                console.error('Error during auto-save:', error);
+            }
+        }
+
+        // Auto-load function for extension activation (no user dialog)
+        function autoLoadSnippets(jsonData) {
+            try {
+                const json = JSON.parse(jsonData);
+                restoreFromJSON(json.snippets);
+                console.log(`Auto-imported ${json.snippets.length} snippets`);
+                
+                // Show notification to user
+                vscode.postMessage({ 
+                    command: "showImportNotification", 
+                    count: json.snippets.length 
+                });
+
+                // Note: Do not notify extension to update history panel - they are independent
+            } catch (error) {
+                console.error('Error during auto-load:', error);
+            }
+        }
+
+        function selectFile(callbackFn) {
+            const fileSelect = document.createElement("input");
+            fileSelect.type = "file";
+            fileSelect.addEventListener("change", () => {
+                const file = fileSelect.files[0];
+                readFile(file, callbackFn);
+            });
+            fileSelect.click();
+        }
+
+        function readFile(file, callbackFn) {
+            const fileReader = new FileReader();
+            fileReader.readAsText(file);
+            fileReader.addEventListener("load", () => {
+                callbackFn(fileReader.result);
+            });
+        }
+
+        function dialogFileSelect() {
+            if (!dialogFileSelector.files[0]) {
+                dialogSubmit.disabled=true;
+                return;
+            }
+            readFile(dialogFileSelector.files[0], text => dialogFileContent = text);
+            dialogSubmit.disabled = false;
+        }
+
+        function openDialogBox(display, container) {
+            dialog.showModal();
+            const outputHandler = event => {
+                if (event.data.command === "postContext" ) {
+                    postChatMessage(display, event.data.context, "user");
+                    generateSummary(display, event.data.context, "", "context", container);
+                }
+                if (event.data.src === "dialog") {
+                    window.removeEventListener("message", outputHandler);
+                }
+            }
+            const clickHandler = event => {
+                if (event.target === dialog) {
+                    closeDialogBox();
+                    window.removeEventListener("mousedown", clickHandler);
+                }
+            }
+            window.addEventListener("message", outputHandler);
+            window.addEventListener("mousedown", clickHandler);
+        }
+
+        function closeDialogBox(submit) {
+            const message = { src: "dialog" };
+            if (submit) {
+                message.command = "postContext";
+                message.context = (dialogTextInput.value ? dialogTextInput.value + '\n' : "") + dialogFileContent;
+            }
+            window.postMessage(message);
+            dialogTextInput.value = "";
+            dialogFileSelector.value = "";
+            dialogFileContent = undefined;
+            dialogSubmit.disabled = true;
+            dialog.close();
+        }
+        
+        function moveDialogBox(event) {
+            let restingMouseX = event.clientX;
+            let restingMouseY = event.clientY;
+            function mid(a, b, c) {
+                if (a <= b && b <= c) return b;
+                else if (b < a) return a;
+                else if (b > c) return c;
+            }
+            const moveEvent = event => {
+                let newMouseX = event.clientX;
+                let newMouseY = event.clientY;
+                Object.assign(dialog.style, {
+                    left: mid(0, dialog.offsetLeft + (newMouseX - restingMouseX), window.innerWidth - dialog.offsetWidth) + 'px',
+                    top: mid(0, dialog.offsetTop + (newMouseY - restingMouseY), window.innerHeight - dialog.offsetHeight) + 'px'
+                });
+                restingMouseX = newMouseX;
+                restingMouseY = newMouseY;
+            }
+            const stopEvent = event => {
+                document.removeEventListener('mousemove', moveEvent);
+                document.removeEventListener('mouseup', stopEvent);
+            }
+            document.addEventListener('mousemove', moveEvent);
+            document.addEventListener('mouseup', stopEvent);
+        }
+
+        function removeSnippetFromPanel(container, labelText) {
+            const removeConfirmDialog = document.getElementById('removeConfirmDialog');
+            const removeConfirmTitle = document.getElementById('removeConfirmTitle');
+            const removeConfirmMessage = document.getElementById('removeConfirmMessage');
+            const removeConfirmCancel = document.getElementById('removeConfirmCancel');
+            const removeConfirmOk = document.getElementById('removeConfirmOk');
+
+            removeConfirmTitle.textContent = `Remove Snippet "${labelText}"`;
+            removeConfirmMessage.textContent = `Are you sure you want to remove the snippet "${labelText}"? This action cannot be undone.`;
+            removeConfirmDialog.style.display = 'block';
+
+            // Clear any existing event listeners
+            const newCancelButton = removeConfirmCancel.cloneNode(true);
+            const newOkButton = removeConfirmOk.cloneNode(true);
+            removeConfirmCancel.parentNode.replaceChild(newCancelButton, removeConfirmCancel);
+            removeConfirmOk.parentNode.replaceChild(newOkButton, removeConfirmOk);
+
+            newCancelButton.onclick = () => {
+                removeConfirmDialog.style.display = 'none';
+            };
+            
+            newOkButton.onclick = () => {
+                const index = Array.from(pinnedSnippets.children).indexOf(container);
+                console.log(`Removing snippet at index: ${index}, label: ${labelText}`);
+                
+                // Sync messages to decoration manager before removing snippet
+                const chatDisplay = container.querySelector(".chat-display-box");
+                if (chatDisplay) {
+                    const messages = [];
+                    const messageElements = chatDisplay.querySelectorAll('.chat-message');
+                    messageElements.forEach(msgEl => {
+                        const role = msgEl.classList.contains('user-message') ? 'user' : 'assistant';
+                        const content = msgEl.textContent;
+                        messages.push({ role, content });
+                    });
+                    
+                    // Send message sync to extension with snippet label for identification
+                    vscode.postMessage({ 
+                        command: "syncSnippetMessages", 
+                        snippetLabel: labelText, 
+                        messages: messages 
+                    });
+                }
+                
+                pinnedSnippets.removeChild(container);
+                vscode.postMessage({ command: "removeSnippet", index: index });
+                removeConfirmDialog.style.display = 'none';
+                
+                // Update filter after removal
+                filterSnippets();
+            };
+
+            // Close dialog when clicking outside
+            removeConfirmDialog.onclick = (event) => {
+                if (event.target === removeConfirmDialog) {
+                    removeConfirmDialog.style.display = 'none';
+                }
+            };
+        }
+
+        function shareSnippetToTeam(container) {
+            const labelText = container.querySelector('.snippet-label').value;
+            const descriptionText = container.querySelector('.snippet-description').value;
+            const fileNameText = container.querySelector('.snippet-filename').textContent;
+            const lineNumberText = container.querySelector('.snippet-linenumbers').textContent;
+            const codeText = container.querySelector('.snippet-code').textContent;
+            
+            // Extract git information from the DOM elements (similar to saveToJSON)
+            const gitInfoElement = container.querySelector('.snippet-git-info');
+            let gitCommitInfo = null;
+            
+            if (gitInfoElement && gitInfoElement.textContent !== "Git information not available") {
+                const hashElement = gitInfoElement.querySelector('.git-commit-hash');
+                const authorElement = gitInfoElement.querySelector('.git-commit-author');
+                const dateElement = gitInfoElement.querySelector('.git-commit-date');
+                const subjectElement = gitInfoElement.querySelector('.git-commit-subject');
+                
+                if (hashElement && authorElement && dateElement && subjectElement) {
+                    gitCommitInfo = {
+                        hash: hashElement.textContent.replace('Commit: ', ''),
+                        author: authorElement.textContent.replace('Author: ', ''),
+                        date: dateElement.textContent.replace('Date: ', ''),
+                        subject: subjectElement.textContent.replace(/^"|"$/g, '')
+                    };
+                }
+            }
+
+            // Extract ChatGPT messages from the chat display
+            const chatDisplay = container.querySelector('.chat-display-box');
+            const messages = [];
+            if (chatDisplay) {
+                const messageElements = chatDisplay.querySelectorAll('div');
+                messageElements.forEach(element => {
+                    const messageElement = element.querySelector('pre');
+                    if (messageElement) {
+                        const content = messageElement.textContent;
+                        const isUser = element.style.alignSelf === 'flex-end';
+                        const role = isUser ? 'user' : 'assistant';
+                        messages.push({ content, role });
+                    }
+                });
+            }
+
+            const snippet = {
+                label: labelText,
+                description: descriptionText,
+                fileName: fileNameText,
+                lineNumbers: lineNumberText,
+                code: codeText,
+                gitCommitInfo: gitCommitInfo,
+                messages: messages // Include ChatGPT messages
+            };
+
+            // Send message to extension to handle team file saving
+            vscode.postMessage({ 
+                command: "shareToTeam", 
+                snippet: snippet
+            });
+            
+            // Show user feedback
+            const originalText = container.querySelector('.plain-input[title="Share to Team (.vscode-snippets-team.json)"]').textContent;
+            const button = container.querySelector('.plain-input[title="Share to Team (.vscode-snippets-team.json)"]');
+            button.textContent = "✓";
+            button.style.backgroundColor = "var(--vscode-notificationsInfoIcon-foreground)";
+            
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.style.backgroundColor = "var(--vscode-button-background)";
+            }, 2000);
+        }
+
+        function removeSnippetFromTeam(container) {
+            const labelText = container.querySelector('.snippet-label').value;
+            const removeConfirmDialog = document.getElementById('removeConfirmDialog');
+            const removeConfirmTitle = document.getElementById('removeConfirmTitle');
+            const removeConfirmMessage = document.getElementById('removeConfirmMessage');
+            const removeConfirmCancel = document.getElementById('removeConfirmCancel');
+            const removeConfirmOk = document.getElementById('removeConfirmOk');
+
+            removeConfirmTitle.textContent = `Remove Snippet "${labelText}" from Team`;
+            removeConfirmMessage.textContent = `Are you sure you want to remove the snippet "${labelText}" from your team snippets? This action cannot be undone.`;
+            removeConfirmDialog.style.display = 'block';
+
+            // Clear any existing event listeners
+            const newCancelButton = removeConfirmCancel.cloneNode(true);
+            const newOkButton = removeConfirmOk.cloneNode(true);
+            removeConfirmCancel.parentNode.replaceChild(newCancelButton, removeConfirmCancel);
+            removeConfirmOk.parentNode.replaceChild(newOkButton, removeConfirmOk);
+
+            newCancelButton.onclick = () => {
+                removeConfirmDialog.style.display = 'none';
+            };
+            
+            newOkButton.onclick = () => {
+                // Don't remove from panel, just remove from team file
+                vscode.postMessage({ command: "removeFromTeam", snippetLabel: labelText });
+                removeConfirmDialog.style.display = 'none';
+                
+                // Show user feedback
+                const originalText = container.querySelector('.plain-input[title="Remove from Team (.vscode-snippets-team.json)"]').textContent;
+                const button = container.querySelector('.plain-input[title="Remove from Team (.vscode-snippets-team.json)"]');
+                button.textContent = "✓";
+                button.style.backgroundColor = "var(--vscode-notificationsInfoIcon-foreground)";
+                
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.backgroundColor = "var(--vscode-errorForeground)";
+                }, 2000);
+            };
+
+            // Close dialog when clicking outside
+            removeConfirmDialog.onclick = (event) => {
+                if (event.target === removeConfirmDialog) {
+                    removeConfirmDialog.style.display = 'none';
+                }
+            };
+        }
+    </script>
+
+</body>
+</html>

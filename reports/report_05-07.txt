@@ -1,0 +1,13 @@
+VScode extensions can execute commands with vscode.commands.executeCommand()
+The function takes a command id as parameter.
+editor.action.revealDefinition can be passed to jump to the definition for the highlighted symbol.
+
+The main extension program registers a command called "hello world" which calls two functions.
+The first displays a notification (this can be swapped for alternative functionality)
+The second calls the go to definition command.
+package.json has been modified to provide the hello world command through a keybinding and a context menu option.
+By default, F12 is mapped to the go to definition command.
+The extension binds F12 to the hello world command to run secondary commands in conjunction with go to definition.
+
+When the extension is active and the user selects the hello world command while the cursor is placed on a symbol,
+a hello world notification is displayed and the editor jumps to the symbol's definition.

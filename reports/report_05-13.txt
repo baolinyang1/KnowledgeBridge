@@ -1,0 +1,18 @@
+A bug was reported in report_05-09. Its main cause has been found.
+
+When running the extension, if the command is run on a symbol whose
+definition exists outside of the current file, it will fail if the import
+reference has not been resolved or if the file in which it is defined is
+not open.
+
+A solution using setTimeout and async/await to wait 100ms before
+trying to access the requested file has been implemented. This fixes the issue
+where the command fails if the file in which the definition exists is not open.
+This does not resolve the issue where the command fails if run before
+references to modules have been resolved.
+
+Ideally, this should be changed to allow the user to run the command as soon
+as they like, then wait internally for resolving references if necessary.
+
+The webview api has been used to add a new webview panel containing an image
+when the command is initially activated.

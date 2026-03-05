@@ -1,0 +1,19 @@
+The extension now uses vscode's treeview api to display symbols.
+
+To use the treeview, we implement the TreeDataProvider interface as the
+ComprehensionProvider class. The interface requires two methods:
+  getChildren, which gets elements for the treeview
+  getTreeItem, which determines how elements are rendered in the view
+
+The defitionData property is used for storing the view's elements.
+It is an array containing objects with item and link properties.
+
+The addToMap method is used to pass data from the extension to the treeview.
+It takes a string, for the text to be displayed, and a locationLink, for
+accessing symbol definitions, and appends a new element to defitionData.
+To access symbol definitions from the view, it also defines the behavior
+for when an element in the tree is selected, using the built-in
+editor.action.goToLocations command.
+
+The class also contains a method to refresh the treeview. This is always
+run by addToMap.

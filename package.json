@@ -1,0 +1,79 @@
+{
+  "name": "hello",
+  "displayName": "hello",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.89.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "hello.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "codeMap",
+        "title": "Generate Leads"
+      },
+      {
+        "command": "pinSnippet",
+        "title": "Pin Code Snippet"
+      },
+      {
+        "command": "exportSnippets",
+        "title": "Export Pinned Snippets"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "hello.helloWorld",
+        "key": "F12",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "hello.helloWorld",
+          "group": "navigation"
+        },
+        {
+          "command": "codeMap",
+          "group": "navigation"
+        },
+        {
+          "command": "pinSnippet",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "18.x",
+    "@types/vscode": "^1.89.0",
+    "@typescript-eslint/eslint-plugin": "^7.7.1",
+    "@typescript-eslint/parser": "^7.7.1",
+    "@vscode/test-cli": "^0.0.8",
+    "@vscode/test-electron": "^2.3.9",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "openai": "^4.52.1"
+  }
+}

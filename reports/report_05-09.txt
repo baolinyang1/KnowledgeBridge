@@ -1,0 +1,58 @@
+The executeDefinitionProvider command returns a LocationLink, which is
+an object containing the following properties:
+
+originSelectionRange
+targetRange
+targetSelectionRange
+targetUri
+
+These provide data about a Location in a file.
+
+The line containing a symbol's definition can be retrieved by through a
+chain of properties:
+
+LocationLink (returned by executeDefinitionProvider) ->
+targetSelectionRange: Range ->
+start: Position ->
+line: number
+
+To output the retrieved line, we need to access the document where
+it exists. vscode provides some tools to achieve this:
+
+interface TextEditor
+	document: TextDocument
+interface TextDocument
+	lineAt(line: number): TextLine
+interface TextLine
+	text: string
+
+By calling the methods and properties listed above (and passing the line
+number to lineAt), we can retrieve the text at the line where the symbol
+is defined.
+
+Note that there is currently a bug where sometimes the line cannot be
+retrieved and an error message is output:
+
+rejected promise not handled within 1 second: TypeError: Cannot read properties of undefined
+
+It is not always clear what causes this, but I have a few guesses:
+
+- command is run before required data has been loaded
+- does not properly handle cases where data cannot be retrieved quickly
+- non-null assertion operator
+
+*update*
+
+The extension has been modified to access additional information about
+symbol definitions. It also passes some of the data from the LocationLink
+returned by executeDefinitionProvider to the TextDocument interface more
+directly for accessing this information.
+
+For identifying parameters, return types, comment blocks, and function
+bodies, using a stack to manually locate opening and closing brackets is a
+possibility, but it is a bit inelegant of a solution if a dedicated API call
+exists for this purpose.
+
+It should be possible to handle visualization with vscode's webview API,
+but this may be unnecessarily expensive on ressources if another option
+for visualization exists.

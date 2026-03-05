@@ -1,0 +1,18 @@
+Symbol definitions can now be accessed from webview nodes.
+
+The LocationLink data for definitions is stored in the extension as an object
+labeled "definitions". When the add to code exploration map command is run,
+the symbol's definition is accessed and added to the object.
+
+The symbol is passed to the webview and stored in a node. When the node is
+clicked in the webview, it passes the symbol back to the extension with a
+message. Then it accesses the LocationLink data stored in the object using
+the symbol for indexing. The uri and position data from the LocationLink are
+passed as arguments to the editor.action.goToLocations command, which is used
+to jump to the symbol definition in the editor.
+
+Note that the definition file will be opened in the same focus as the webview,
+so the workbench.action.focusFirstEditorGroup command is called first to
+ensure the document is placed in the other editor group.
+Also, without setting retainContextWhenHidden in createWebView, the webview's
+context will be reset if it is unfocused in the editor.

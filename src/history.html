@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snippet History</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+    <div class="menu-bar">
+        <input type="text" id="filterInput" placeholder="Filter snippets..." class="plain-input" style="flex: 1; margin-right: 10px;">
+        <button class="plain-input" onclick="clearFilter()">Clear Filter</button>
+        <button class="plain-input" onclick="clearAllSnippets()">Clear All</button>
+    </div>
+    
+    <div id="historyContainer" style="height: calc(100vh - 60px); overflow-y: auto;">
+        <div id="snippetHistory"></div>
+    </div>
+
+    <!-- Custom confirmation dialog -->
+    <div id="confirmDialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--vscode-editor-background); border: 1px solid var(--vscode-editorGroup-border); border-radius: 8px; padding: 20px; min-width: 300px;">
+            <h3 id="confirmTitle" style="margin: 0 0 15px 0; color: var(--vscode-foreground);">Confirm Action</h3>
+            <p id="confirmMessage" style="margin: 0 0 20px 0; color: var(--vscode-foreground);">Are you sure?</p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button id="confirmCancel" class="plain-input" style="padding: 8px 16px;">Cancel</button>
+                <button id="confirmOk" class="plain-input" style="padding: 8px 16px; background: var(--vscode-errorForeground); color: white;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+        let allSnippets = [];
+        let filteredSnippets = [];
+
+        window.addEventListener("message", event => {
+            if (event.data.command === "updateHistory") {
+                //console.log('Received updateHistory command with snippets:', event.data.snippets);
+                allSnippets = event.data.snippets;
+                //console.log('All snippets stored:', allSnippets.map(s => `${s.label} (ID: ${s.id})`));
+                applyFilter();
+            } else if (event.data.command === "clear") {
+                allSnippets = [];
+                displaySnippets([]);
+            }
+        });
+
+        const filterInput = document.getElementById("filterInput");
+        const snippetHistory = document.getElementById("snippetHistory");
+
+        // Filter functionality
+        filterInput.addEventListener("input", applyFilter);
+
+        function applyFilter() {
+            const filterText = filterInput.value.toLowerCase();
+            
+            if (!filterText) {
+                filteredSnippets = [...allSnippets];
+            } else {
+                filteredSnippets = allSnippets.filter(snippet => 
+                    snippet.label.toLowerCase().includes(filterText) ||
+                    snippet.description.toLowerCase().includes(filterText) ||
+                    snippet.fileName.toLowerCase().includes(filterText) ||
+                    snippet.code.toLowerCase().includes(filterText) ||
+                    (snippet.notes && snippet.notes.toLowerCase().includes(filterText))
+                );
+            }
+            
+            displaySnippets(filteredSnippets);
+        }
+
+        function clearFilter() {
+            filterInput.value = "";
+            applyFilter();
+        }
+
+        function displaySnippets(snippets) {
+            snippetHistory.innerHTML = "";
+            
+            if (snippets.length === 0) {
+                const emptyMessage = document.createElement("div");
+                emptyMessage.style.cssText = "text-align: center; color: #666; margin-top: 50px; font-style: italic;";
+                emptyMessage.textContent = allSnippets.length === 0 ? "No snippets pinned yet" : "No snippets match the filter";
+                snippetHistory.appendChild(emptyMessage);
+                return;
+            }
+
+            snippets.forEach((snippet, index) => {
+                const snippetItem = createSnippetItem(snippet, index);
+                snippetHistory.appendChild(snippetItem);
+            });
+        }
+
+        function createSnippetItem(snippet, index) {
+            const container = document.createElement("div");
+            container.className = "history-snippet-item";
+            container.style.cssText = `
+                border: 1px solid var(--vscode-editorGroup-border);
+                margin: 10px;
+                padding: 15px;
+                border-radius: 8px;
+                background: var(--vscode-editor-background);
+                position: relative;
+            `;
+
+            // Header with label and actions
+            const header = document.createElement("div");
+            header.style.cssText = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;";
+
+            const labelContainer = document.createElement("div");
+            labelContainer.style.cssText = "display: flex; flex-direction: column;";
+
+            const label = document.createElement("h3");
+            label.textContent = snippet.label;
+            label.style.cssText = "margin: 0; color: var(--vscode-foreground); font-size: 16px;";
+
+            const fileInfo = document.createElement("div");
+            fileInfo.style.cssText = "font-size: 12px; color: gold; margin-top: 4px;";
+            fileInfo.textContent = `${snippet.fileName} • Lines ${snippet.lineNumbers}`;
+
+            labelContainer.appendChild(label);
+            labelContainer.appendChild(fileInfo);
+
+            const actionsContainer = document.createElement("div");
+            actionsContainer.style.cssText = "display: flex; gap: 8px;";
+
+            //// View button
+            //const viewBtn = document.createElement("button");
+            //viewBtn.className = "plain-input";
+            //viewBtn.textContent = "👁️ View";
+            //viewBtn.style.cssText = "padding: 4px 8px; font-size: 12px;";
+            //viewBtn.onclick = () => viewSnippet(snippet);
+
+            // Open in editor button
+            const openBtn = document.createElement("button");
+            openBtn.className = "plain-input";
+            openBtn.textContent = "📂 Open";
+            openBtn.style.cssText = "padding: 4px 8px; font-size: 12px;";
+            openBtn.onclick = () => openSnippetInEditor(snippet);
+
+            // Remove button
+            const removeBtn = document.createElement("button");
+            removeBtn.className = "plain-input";
+            removeBtn.textContent = "🗑️ Remove";
+            removeBtn.style.cssText = "padding: 4px 8px; font-size: 12px; background: var(--vscode-errorForeground); color: white;";
+            removeBtn.onclick = () => removeSnippet(snippet, index);
+
+            //actionsContainer.appendChild(viewBtn);
+            actionsContainer.appendChild(openBtn);
+            actionsContainer.appendChild(removeBtn);
+
+            header.appendChild(labelContainer);
+            header.appendChild(actionsContainer);
+
+            // Description
+            const description = document.createElement("div");
+            description.style.cssText = "margin-bottom: 10px; font-style: italic; color: gold;"
+            description.textContent = snippet.description || "No description";
+
+            // Git info
+            const gitInfo = document.createElement("div");
+            gitInfo.style.cssText = "font-size: 11px; color: var(--vscode-descriptionForeground); margin-bottom: 10px;color:gold"
+           
+            if (snippet.gitCommitInfo) {
+                gitInfo.innerHTML = `
+                    <span style="font-family: monospace;">${snippet.gitCommitInfo.hash}</span> • 
+                    ${snippet.gitCommitInfo.author} • 
+                    ${new Date(snippet.gitCommitInfo.date).toLocaleDateString()} • 
+                    "${snippet.gitCommitInfo.subject}"
+                `;
+            } else {
+                gitInfo.textContent = "Git information not available";
+            } 
+            // Code preview (first few lines)
+            const codePreview = document.createElement("pre");
+            codePreview.style.cssText = `
+                background: var(--vscode-textCodeBlock-background);
+                padding: 10px;
+                border-radius: 4px;
+                overflow-x: auto;
+                max-height: 150px;
+                overflow-y: auto;
+                font-size: 12px;
+                margin: 0;
+                border: 1px solid var(--vscode-editorGroup-border);
+            `;
+            
+            const lines = snippet.code.split('\n');
+            const previewLines = lines.slice(0, 8); // Show first 8 lines
+            if (lines.length > 8) {
+                previewLines.push('... (click View to see full snippet at snippet panel)');
+            }
+            codePreview.textContent = previewLines.join('\n');
+
+            // Personal Notes Section
+            const notesSection = document.createElement("div");
+            notesSection.style.cssText = "margin-top: 10px; margin-bottom: 10px;";
+
+            const notesHeader = document.createElement("div");
+            notesHeader.style.cssText = "display: flex; align-items: center; margin-bottom: 5px;";
+            
+            const notesLabel = document.createElement("label");
+            notesLabel.textContent = "📝 Personal Notes For This Snippet:";
+            notesLabel.style.cssText = "font-size: 12px; font-weight: bold; color: var(--vscode-foreground);";
+
+            const notesSaveStatus = document.createElement("span");
+            notesSaveStatus.style.cssText = "margin-left: 10px; font-size: 10px; color: var(--vscode-descriptionForeground);";
+            
+            notesHeader.appendChild(notesLabel);
+            notesHeader.appendChild(notesSaveStatus);
+
+            const notesTextarea = document.createElement("textarea");
+            notesTextarea.placeholder = "Add your personal notes about this snippet...";
+            notesTextarea.value = snippet.notes || "";
+            notesTextarea.style.cssText = `
+                width: 100%;
+                min-height: 60px;
+                max-height: 120px;
+                resize: vertical;
+                border: 1px solid var(--vscode-editorGroup-border);
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                padding: 8px;
+                border-radius: 4px;
+                font-family: var(--vscode-editor-font-family);
+                font-size: 12px;
+                box-sizing: border-box;
+            `;
+
+            // Auto-save notes on input with debouncing
+            let saveTimeout;
+            notesTextarea.addEventListener('input', () => {
+                notesSaveStatus.textContent = 'Saving...';
+                notesSaveStatus.style.color = 'var(--vscode-charts-orange)';
+                
+                clearTimeout(saveTimeout);
+                saveTimeout = setTimeout(() => {
+                    const newNotes = notesTextarea.value;
+                    vscode.postMessage({
+                        command: "updateSnippetNotes",
+                        snippetId: snippet.id,
+                        notes: newNotes
+                    });
+                    
+                    notesSaveStatus.textContent = 'Saved ✓';
+                    notesSaveStatus.style.color = 'var(--vscode-charts-green)';
+                    
+                    // Clear status after 2 seconds
+                    setTimeout(() => {
+                        notesSaveStatus.textContent = '';
+                    }, 2000);
+                }, 1000); // 1 second debounce
+            });
+
+            notesSection.appendChild(notesHeader);
+            notesSection.appendChild(notesTextarea);
+
+            // Timestamp
+            const timestamp = document.createElement("div");
+            timestamp.style.cssText = "font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 10px; text-align: right;";
+            if (snippet.timestamp) {
+                timestamp.textContent = `Created: ${new Date(snippet.timestamp).toLocaleString()}`;
+            }
+
+            container.appendChild(header);
+            // this oen alwasy give no description anyways
+            //container.appendChild(description);
+            container.appendChild(gitInfo);
+            container.appendChild(codePreview);
+            container.appendChild(notesSection);
+            container.appendChild(timestamp);
+
+            return container;
+        }
+
+        function viewSnippet(snippet) {
+            vscode.postMessage({
+                command: "viewSnippet",
+                snippet: snippet
+            });
+        }
+
+        function openSnippetInEditor(snippet) {
+            vscode.postMessage({
+                command: "openSnippetInEditor",
+                snippet: snippet
+            });
+        }
+
+        function removeSnippet(snippet, index) {
+            console.log('removeSnippet called with:', snippet);
+            console.log('Snippet ID:', snippet.id);
+            console.log('Snippet Label:', snippet.label);
+            
+            const confirmDialog = document.getElementById('confirmDialog');
+            const confirmTitle = document.getElementById('confirmTitle');
+            const confirmMessage = document.getElementById('confirmMessage');
+            const confirmCancel = document.getElementById('confirmCancel');
+            const confirmOk = document.getElementById('confirmOk');
+
+            confirmTitle.textContent = `Remove Snippet "${snippet.label}"?`;
+            confirmMessage.textContent = `Are you sure you want to remove the snippet "${snippet.label}"? This action cannot be undone.`;
+            confirmDialog.style.display = 'block';
+
+            confirmCancel.onclick = () => {
+                confirmDialog.style.display = 'none';
+            };
+            confirmOk.onclick = () => {
+                const message = {
+                    command: "removeSnippet",
+                    snippetId: snippet.id,
+                    snippetLabel: snippet.label
+                };
+                console.log('Sending message to extension:', message);
+                vscode.postMessage(message);
+                confirmDialog.style.display = 'none';
+            };
+        }
+
+        function clearAllSnippets() {
+            const confirmDialog = document.getElementById('confirmDialog');
+            const confirmTitle = document.getElementById('confirmTitle');
+            const confirmMessage = document.getElementById('confirmMessage');
+            const confirmCancel = document.getElementById('confirmCancel');
+            const confirmOk = document.getElementById('confirmOk');
+
+            confirmTitle.textContent = "Clear All Snippets?";
+            confirmMessage.textContent = "Are you sure you want to remove ALL pinned snippets? This action cannot be undone.";
+            confirmDialog.style.display = 'block';
+
+            confirmCancel.onclick = () => {
+                confirmDialog.style.display = 'none';
+            };
+            confirmOk.onclick = () => {
+                vscode.postMessage({
+                    command: "clearAllSnippets"
+                });
+                confirmDialog.style.display = 'none';
+            };
+        }
+
+        // Request initial data when panel loads
+        vscode.postMessage({ command: "requestHistoryUpdate" });
+    </script>
+
+</body>
+</html> 

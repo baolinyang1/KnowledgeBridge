@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>title</title>
+	<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+    <div class="menu-bar">
+        <button class="plain-input" onclick="hideAll()">Hide All</button>
+    </div>
+    <div>
+        <ul id="symbolList" style="display: inline-block;">symbols</ul>
+        <ul id="snippetList" style="display: inline-block; vertical-align: top;">snippets</ul>
+    </div>
+    <script>
+        const vscode = acquireVsCodeApi();
+
+        window.addEventListener("message", event => {
+            if (event.data.command === "addSymbol") {
+                addFilterItem(event.data.symbol, "symbolList", event.data.symbolID);
+            } else if (event.data.command === "addSnippetFilter") {
+                addFilterItem(event.data.label, "snippetList", event.data.label);
+            } else if (event.data.command === "clear") {
+                document.querySelectorAll("li").forEach(i => i.remove());
+            } else if (event.data.command == "snippetLabelChange") {
+                document.getElementById("snippetList").children[event.data.index].querySelector("label").textContent = event.data.newLabel;
+            } else if (event.data.type === "snippet") {
+                for (const symbolID of event.data.symbolIDs) {
+                    check = document.getElementById(symbolID);
+                    if (check) {
+                        const toggle = { "show": true, "hide": false }[event.data.command];
+                        check.checked = toggle;
+                    }
+                }
+            }
+        });
+
+        function addFilterItem(name, list, symbolID) {
+            const filterItem = document.createElement("li");
+            const check = document.createElement("input");
+            Object.assign(check, { type: "checkbox", id: symbolID, checked: true, onclick: () => toggleVisibility(name, list, symbolID) });
+            const label = document.createElement("label");
+            Object.assign(label, { textContent: name, for: check });
+            for (const i of [check, label]) filterItem.appendChild(i);
+            document.getElementById(list).appendChild(filterItem);
+        }
+
+        function toggleVisibility(symbol, list, symbolID) {
+            const type = { "symbolList": "symbol", "snippetList": "snippet" }[list];
+            const command = document.getElementById(symbolID).checked ? "show" : "hide";
+            vscode.postMessage({ symbol: symbol, command: command, type: type, symbolID: symbolID });
+        }
+
+        function hideAll() {
+            vscode.postMessage({ command: 'hideAll' });
+            for (check of document.getElementById('symbolList').querySelectorAll('input[type=checkbox]')) {
+                check.checked=false;
+            }
+            for (check of document.getElementById('snippetList').querySelectorAll('input[type=checkbox]')) {
+                check.checked=false;
+            }
+        }
+    </script>
+    
+</body>
+</html>

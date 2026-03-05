@@ -1,0 +1,13 @@
+The webview's html has been moved from the main extension program to its own
+separate html file. This should make the webview easier to manage. To access
+the file from the main extension file, we can use the vscode module's
+workspace.openTextDocument function. It takes as an argument a uri and returns
+a promise that resolves to a TextDocument. To get the uri for the project, we
+can access the activate function's ExtensionContext. When the promise resolves,
+we can use TextDocument's getText method to get the html as a string.
+
+The highlight.js javscript library can be used for syntax highlighting in
+javascript. The library's highlight function produces an html string with
+highlighting markup. If we can display html content within the gojs diagram,
+it should be possible to display code with syntax highlighting within gojs.
+The GoJS HTMLInfo and TextBlock classes may be useful for this.

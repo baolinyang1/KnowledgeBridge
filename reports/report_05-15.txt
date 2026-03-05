@@ -1,0 +1,22 @@
+A node template has been added to the GoJS diagram.
+This contains an outline for a node's properties and adds Picture and TextBlock GraphObjects,
+along with their data bindings, referenced in the Model constructor.
+
+Communication between the extension and the webview has been added.
+--extension to webview--
+  The webview panel's webview.postMessage method is used to send a message to the webview.
+  This is placed in a new command labeled "Add to Code Exploration Map", available in the context menu.
+--webview data processing--
+  An event listener has been added to the webview script to detect a message from the extension.
+  Currently, the message sent to the webview contains only the selected symbol.
+  The message data can be accessed and passed as data to a new node, which is added to the diagram.
+--webview to extension--
+  The node template defines behavior for a double click.
+  If a node contains an attribute labeled definitionLink, the corresponding data is sent to the extension.
+  This is achieved with the vscode.postMessage method, to send a message from the webview to the extension.
+--extension data processing
+  The extension can detect an incoming message with the webview panel's webview.onDidReceiveMessage method.
+  Currently, the extension simply outputs the received data as a notification.
+  If additional information can be passed between the extension and the webview,
+  it will be possible to call the editor.action.goToLocations command
+  to open the definition of a node selected in the webview.
