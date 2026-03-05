@@ -1,9 +1,5 @@
 # KnowledgeBridge
 A VS code extension that enhance program comprehension and facilitate knowledge transfer
-# vscode_pcext
-
-
-An extension of VS Code that aids in program comprehension. 
 
 # Setup
 
